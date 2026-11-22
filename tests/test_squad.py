@@ -92,9 +92,18 @@ class Rebuild(unittest.TestCase):
         self.assertEqual(self.r["problems"], [])
 
     def test_free_transfers(self):
-        # 1 for GW2; used 1 -> 1 for GW3; Free Hit keeps it and adds 1 -> 2 for GW4
-        self.assertEqual(free_transfers_by_event(DATA["history"]), {2: 1, 3: 1, 4: 2})
-        self.assertEqual(self.r["free_transfers_estimate"], 2)
+        # 1 for GW2; used 1 -> 1 for GW3; Free Hit keeps it but earns no +1 -> 1 for GW4
+        self.assertEqual(free_transfers_by_event(DATA["history"]), {2: 1, 3: 1, 4: 1})
+        self.assertEqual(self.r["free_transfers_estimate"], 1)
+
+    def test_free_transfers_match_real_history(self):
+        # Ekipa Nervno 2026/27 to GW11: Triple Captain GW3, Wildcard GW4.
+        # Known from the Transfers screen: 3 free transfers for GW11, 2 for GW12.
+        used = {1: 0, 2: 0, 3: 1, 4: 0, 5: 1, 6: 1, 7: 0, 8: 0, 9: 3, 10: 0, 11: 2}
+        hist = {"current": [{"event": g, "event_transfers": n} for g, n in used.items()],
+                "chips": [{"name": "3xc", "event": 3}, {"name": "wildcard", "event": 4}]}
+        ft = free_transfers_by_event(hist)
+        self.assertEqual((ft[11], ft[12]), (3, 2))
 
     def test_cap_at_five(self):
         hist = {"current": [{"event": g, "event_transfers": 0} for g in range(1, 10)], "chips": []}

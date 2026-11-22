@@ -56,8 +56,9 @@ def load(src):
 def free_transfers_by_event(history):
     """Estimate free transfers available for each gameweek.
 
-    Rule as understood for 2024/25 onwards: +1 per gameweek, at most 5 banked,
-    and banked transfers survive a Wildcard or Free Hit. FPL has also topped
+    Rule: +1 per gameweek, at most 5 banked. In a Wildcard or Free Hit week the
+    banked transfers are kept but no +1 is earned. Checked against Ekipa Nervno's
+    real history (3 free transfers for GW11, 2 for GW12). FPL has also topped
     everyone up by decree before (5 free transfers in 2025/26), which this cannot
     see, so the result is an estimate to confirm against the Transfers screen.
     Returns {event: free transfers available for that event}.
@@ -73,7 +74,7 @@ def free_transfers_by_event(history):
             ft_for[gw + 1] = ft
             continue
         if chip_at.get(gw) in ("wildcard", "freehit"):
-            ft = min(MAX_FREE_TRANSFERS, ft + 1)
+            pass  # banked transfers kept, no +1 this week
         else:
             ft = min(MAX_FREE_TRANSFERS, max(0, ft - row["event_transfers"]) + 1)
         ft_for[gw + 1] = ft
