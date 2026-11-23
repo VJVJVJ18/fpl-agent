@@ -23,7 +23,10 @@ Every scheduled FPL run in Vuk's chat follows this file. Read it in full at the 
   2. With `list_triggers`, check that this gameweek's final check and the next two gameweeks' briefs and final checks are scheduled at the right times.
   3. Create any that are missing. If a deadline has moved, delete the wrong one and create the correct one.
   4. Name them "FPL GW{n} brief" and "FPL GW{n} final check".
-- **Notify Vuk at the end of every run** with `PushNotification`, one line under 200 characters, leading with the call. For example: "GW12: Palmer->Petrovic, C Haaland, no chip. Deadline Fri 18:30. 1 differential flagged". For a final check: "GW12 final check: call stands" or "GW12 final check: CHANGE, Konsa out (injured)".
+- **Deliver and notify:**
+  - Send the finished brief or final check with `SendUserMessage`, so it appears in the chat as a message to Vuk.
+  - Then call `PushNotification`, one line under 200 characters, leading with the call.
+  - If either delivery tool is missing or fails, say so at the top of the brief. For example: "GW12: Palmer->Petrovic, C Haaland, no chip. Deadline Fri 18:30. 1 differential flagged". For a final check: "GW12 final check: call stands" or "GW12 final check: CHANGE, Konsa out (injured)".
 
 ## 3. Data
 
