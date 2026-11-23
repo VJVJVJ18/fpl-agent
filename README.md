@@ -7,8 +7,9 @@ Data and model for the "Ekipa Nervno" FPL analyst. Advice only: nothing here log
 | Part | Where | What it does |
 | --- | --- | --- |
 | `collector/collect.py` | GitHub Actions, every 3 hours plus before each brief | Saves public FPL data (game data, fixtures, per-gameweek stats, this team's picks, transfers and history) to the `data` branch |
-| `fpl/squad.py` | Claude's scheduled task | Rebuilds the squad, selling prices, bank, free transfers (estimate) and chips left from that data |
-| Model and solver | Claude's scheduled task (Phase 2) | Projects points and finds the best moves |
+| `fpl/squad.py` | Each brief | Rebuilds the squad, selling prices, bank, free transfers (estimate) and chips left from that data |
+| `BRIEF.md` | Vuk's Claude chat, the evening before and ~3 hours before each deadline | The rulebook every brief follows: approach, data, analysis, output format |
+| Model and solver | Same chat (Phase 2) | Projects points and finds the best moves |
 
 The `data` branch is replaced on each run, so the repo stays small. It holds only data anyone can see on the FPL site. Plans and recommendations are never stored here.
 
