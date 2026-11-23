@@ -1,115 +1,98 @@
 # FPL brief rulebook: Ekipa Nervno
 
-Every scheduled FPL run in Vuk's chat follows this file. Read it in full at the start of each run (`git -C /home/claude/fpl-agent pull`, or clone the repo if it is missing). Changes to how the brief works are made here, as commits, so every future run picks them up.
+Everything FPL runs in Vuk's single Claude chat. One scheduled message arrives every morning at 07:46 UK ("FPL daily check"); this file says what to do with it. Changes to how the brief works are made here, as commits, so every later run picks them up.
 
 ## 1. Vuk's approach (applies to every decision)
 
-- **Data first, by far.** Every recommendation rests on numbers from the data, with the decisive number stated. Opinion pieces are never the reason for a move.
-- **Not consensus.** Template moves are fine when the data backs them, but never because "everyone is doing it". Top-10k ownership (EO) is a risk measure and a way to spot where the market is wrong, not evidence of points.
+- **Data first, by far.** Every recommendation rests on numbers, with the decisive number stated. Opinion pieces are never the reason for a move.
+- **Not consensus.** Template moves are fine when the data backs them, never because "everyone is doing it". Top-10k ownership (EO) is a risk measure and a way to spot where the market is wrong, not evidence of points.
 - **Data-backed differentials are welcome.** If the numbers support a low-owned player or an unusual move, recommend it and size the risk. Vuk is happy to take those risks.
-- **Fixtures are central.** Transfer targets come from fixture runs over the next 6 gameweeks, rated by opponent strength (xG for and against, betting odds), not FPL's difficulty rating.
+- **Fixtures are central.** Targets come from fixture runs over the next 6 gameweeks, rated by opponent strength (model team ratings, betting odds), not FPL's difficulty rating.
 - **Chips are planned weeks ahead.** Never recommend a chip for this gameweek without comparing it with every other gameweek it could be played in.
 - **Hits:** a -4 only if the extra transfer gains 6+ projected points over the next 3 gameweeks, arithmetic shown.
-- **Goal:** top 10k overall. If his current rank is outside 10,000, lean towards differentials on close calls (chase); if inside, lean towards the template on close calls (protect).
-- **Advice only.** Never log in to FPL or make transfers. Brief runs read the repo; they don't change code.
+- **Goal:** top 10k overall. Rank outside 10,000: lean towards differentials on close calls (chase). Inside: lean towards the template on close calls (protect).
+- **Advice only.** Never log in to FPL or make transfers.
 
-## 2. When runs happen
+## 2. The daily check
 
-- **Full brief:** 18:55 UK the evening before each deadline.
-- **Final check:** about 3 hours before each deadline, after the last press conferences.
-- Both arrive as scheduled messages in this chat (`send_later`).
-- **Schedule upkeep, at the end of every full brief:**
-  1. Read the live deadlines from `bootstrap.json`.
-  2. With `list_triggers`, check that this gameweek's final check and the next two gameweeks' briefs and final checks are scheduled at the right times.
-  3. Create any that are missing. If a deadline has moved, delete the wrong one and create the correct one.
-  4. Name them "FPL GW{n} brief" and "FPL GW{n} final check".
-- **Deliver and notify:**
-  - Send the finished brief or final check with `SendUserMessage`, so it appears in the chat as a message to Vuk.
-  - Then call `PushNotification`, one line under 200 characters, leading with the call.
-  - If either delivery tool is missing or fails, say so at the top of the brief. For example: "GW12: Palmer->Petrovic, C Haaland, no chip. Deadline Fri 18:30. 1 differential flagged". For a final check: "GW12 final check: call stands" or "GW12 final check: CHANGE, Konsa out (injured)".
+1. **Book tomorrow first:**
+   - Use `send_later` at 07:46 Europe/London tomorrow, named "FPL daily check", with the same message text as today's.
+   - Skip this only if `list_triggers` already shows an enabled one for tomorrow.
+   - This chain is the only schedule. Never create other schedules or new chats.
+2. `cd /home/claude/fpl-agent && git pull`. Clone the repo there if it's missing.
+3. Install the packages if missing: `pip install -q --break-system-packages -r requirements.txt`.
+4. Run `python3 -m fpl.gate`. Then act on each line it prints:
+   - **SKIP**: reply with that one line only. No notification, no other work.
+   - **STALE**:
+     - Refresh the collector: `gh workflow run collect.yml -R VJVJVJ18/fpl-agent`, then `gh run watch`.
+     - Run the gate again.
+     - If the refresh fails, carry on with the old data and say how old it is.
+   - **REVIEW GW n**: see section 7. It runs silently; its summary goes into the next brief.
+   - **BRIEF GW n (first brief)**: run the full brief (sections 3 to 5).
+   - **BRIEF GW n (update)**: rerun the full analysis with fresh data and news. Then lead with a "Since yesterday" line: what changed and whether the call moved. If nothing material changed, say "No change: yesterday's Option A stands" and keep the exec summary table.
 
-## 3. Data
+   With a 07:46 check and a 36-hour window, every deadline gets two briefs: the morning of the day before, and the morning of deadline day.
+5. **Deliver** every brief with `SendUserMessage`, then `PushNotification`. The notification is one line under 200 characters, leading with the call, for example: "GW12: Palmer(IPS)->Verbruggen, C Haaland, no chip. Deadline Fri 18:30. 1 edge flagged". If a delivery tool is missing or fails, say so at the top of the brief.
 
-1. **Refresh first.** Run `gh workflow run collect.yml -R VJVJVJ18/fpl-agent`, then `gh run watch` (it takes about a minute). If that fails, use the last snapshot and say how old it is.
-2. **Collector files** are under `https://raw.githubusercontent.com/VJVJVJ18/fpl-agent/data/`:
-   - `meta.json`
-   - `bootstrap.json` (the FPL API's bootstrap-static)
-   - `fixtures.json`
-   - `live/{gw}.json` (every player's stats per gameweek)
-   - `entry.json`, `history.json`, `transfers.json`, `picks/{gw}.json` (Vuk's team)
+## 3. Data (one command does the heavy lifting)
 
-   Read them with curl and Python, not WebFetch. The FPL API itself is blocked from this environment.
-3. **Squad:** `python3 -m fpl.squad https://raw.githubusercontent.com/VJVJVJ18/fpl-agent/data --json`. It gives the 15 players with selling prices, bank, rank, chips left, a free-transfer estimate and legality checks. Use its selling prices; never recompute them by hand.
-4. **Plan:** read `/areas/fpl.md` in memory (chip plan, agreed moves). If the data contradicts it, for example a chip already used, the data wins; say so.
-5. **Web sources:**
-   - Press conferences and team news: premierleague.com, club sites, BBC, Sky, The Athletic.
-   - Betting odds: match odds, goal totals and anytime scorer, named and dated.
-   - LiveFPL for top-10k EO, with Fantasy Football Scout's top-10k write-ups as the fallback.
-   - Opinion sites only for a specific, dated argument, labelled as opinion.
-6. **Source rules:**
-   - No fact without a source read in this run.
-   - Missing means "Not found", never a guess.
-   - One xG provider per comparison (default: FPL's Opta-derived xG via the collector).
-   - Never use FBref for advanced stats.
-   - Predicted line-ups and price changes are labelled as predictions.
+- `python3 -m fpl.brief_data --save` writes `brief_data.json` and logs this week's projections for the review. It contains:
+  - **Squad:** rebuilt from FPL (selling prices, bank, free-transfer estimate, chips left, rank).
+  - **Projections:** points per player for the next 6 gameweeks, calibrated, with availability applied to the next gameweek.
+  - **Transfer plans** for 0 up to free transfers + 1: optimised transfers, bank after, projected points by gameweek, 1-gameweek and 3-gameweek gains after hits, captain, vice and bench order.
+  - **Captain table and chip values:** Bench Boost points and Free Hit gain per gameweek, to GW19 in the first half.
+  - **Fixture ratings:** attack ease and clean-sheet odds per team over 6 gameweeks.
+  - **Edge flags:** the data side of the edge scan, with owned players marked.
+- **Commit** `predictions/` and push. Brief runs may commit data files (`predictions/`, `reviews/`, `params.json`, `backtest/REPORT.md`), never code. Code changes only when Vuk asks.
+- **Web sources (Claude):**
+  - Press conferences and team news: premierleague.com, club sites, BBC, Sky, The Athletic.
+  - Betting odds: match odds, goal totals, anytime scorer, named and dated.
+  - LiveFPL for top-10k EO, with Fantasy Football Scout's top-10k write-ups as the fallback.
+  - Opinion sites only for a specific, dated argument, labelled as opinion.
+- **Plan:** read `/areas/fpl.md` in memory (chip plan, agreed moves). If the data contradicts it, for example a chip already used, the data wins; say so.
+- **Source rules:**
+  - No fact without a source read in this run.
+  - Missing means "Not found", never a guess.
+  - One xG provider (FPL's Opta-derived xG via the collector).
+  - Never use FBref for advanced stats.
+  - Predictions (line-ups, price changes) are labelled as such.
 
-## 4. Analysis (do all of it; show only what section 6 asks for)
+## 4. Judgement on top of the model
 
-A. **Fixtures, GW n to n+5:**
-   - Rate every team's attack and defence from xG for and against (last 6 matches, plus the season).
-   - Add odds for GW n.
-   - Flag blanks, doubles, and any cup or European rescheduling that could create them.
-   - Note which teams' fixture runs turn good or bad, and when.
+- **Trust the model where the backtest supports it.**
+  - Its ranking beats a form baseline clearly: rank correlation about 0.50 against 0.40 one gameweek ahead, and its top-20 picks averaged 4.6 points against 4.0.
+  - It holds up on this season's data.
+  - Calibrated projections are slightly conservative at the top end.
+- **Minutes are the model's blind spot.** It learns minutes from recent matches only. Adjust every player you recommend using press conferences and news: injuries, rotation, Europe, returns. Say when you overrode the model and why.
+- **Differentials need one extra check.** In the backtest, low-owned top picks delivered about 89 to 92% of their raw projection, against 96% for template picks. Before recommending one, confirm:
+  - it's nailed (projected 60+ minutes at least 75% of the time, and no news against it);
+  - the fixtures and the odds support it.
+- **Edge scan.** From the data flags plus web checks, keep the 1 to 3 strongest. Each needs:
+  - the number that makes the case and the number that would kill it;
+  - top-10k EO;
+  - whether it's already consensus.
 
-B. **Projections:**
-   - If `model/` exists in the repo, run it.
-   - Otherwise estimate expected points per player per gameweek with the formula in the proposal doc: minutes × attacking rates × fixture strength, plus clean sheets, DefCon and bonus.
-   - Use FPL's `ep_next` as a cross-check, never as the only basis.
-   - Label all projections with their method.
+  Web-only detectors to add:
+  - odds against ownership;
+  - new penalty or set-piece takers announced in press conferences;
+  - fixture swings the crowd hasn't reacted to.
+- **Transfers:**
+  - Start from the optimiser's plans. Check each "in" player's news and odds. Apply the hit rule using `gain_3gw_after_hits`.
+  - Rolling has value: the optimiser counts 1.5 points per free transfer carried, an assumption not yet backtested.
+- **Captain:** the highest projection after news adjustments. EO only breaks near-ties (within about 0.5 points), using the chase or protect posture.
+- **Bench:** the optimiser's order, adjusted for news. The first sub must be nailed.
+- **Chips:**
+  - Use the chip values to GW19 (Bench Boost = bench points; Free Hit = gain over your XI). Add blanks and doubles from news.
+  - Recommend a roadmap through GW19, plus a first view of the second half.
+  - First-half chips are lost after the GW19 deadline.
+- **Option A and Option B:**
+  - A is the recommendation.
+  - B must be a real alternative: if A is the safer or template route, B is the best data-backed differential route, and the other way round. Use the optimiser's other plans, or re-solve with `forbid_in` or `require_in`.
+  - Both must be legal and affordable.
 
-C. **Minutes:** chance of starting, and hook risk (starts, but off before 60), for every player considered.
+## 5. Output format: full brief (exactly this, nothing more)
 
-D. **Edge scan.** This is the differential hunt; run every detector and keep the 1 to 3 strongest findings.
-   1. **Under-owned output:** nailed starters (75%+ of minutes) in the top 15 of their position for xGI per 90 or projected points over 6 gameweeks, with top-10k EO under 10%.
-   2. **Fixture swing before the crowd:** a team whose next 4 to 6 fixtures rank top 5 by opponent strength while its assets are under-owned.
-   3. **Role change:** a new penalty or set-piece taker (bootstrap `penalties_order` and corners order), a position reclassification, or a move further forward.
-   4. **Finishing luck:** nailed attackers with goals well below xG (buy low), and highly owned players well above it (sell-high risk).
-   5. **Odds against ownership:** anytime-scorer or clean-sheet probabilities high relative to ownership.
-   6. **Defensive value:** defenders and midfielders with a high DefCon hit rate and good clean-sheet odds, at low ownership.
-   7. **Minutes regained:** players back from injury or rotation who have started the last 2 or more matches, before the market reacts.
-   8. **Template sell signals:** highly owned players whose underlying numbers or fixtures have turned.
-
-   Each finding needs: the number that makes the case, the number that would kill it, top-10k EO, and whether it is already consensus (yes or no).
-
-E. **Transfers:**
-   - Compare rolling, using the free transfers, and hit options by projected points over GW n to n+5, with later weeks discounted.
-   - Check legality: positions, 3 per club, and budget at selling prices.
-   - Apply the hit rule.
-
-F. **Captain:** the highest projection. EO breaks only near-ties (within about 0.5 points), using the chase or protect posture.
-
-G. **Bench:** order by the chance a starter misses × the bench player's projection. The first sub must be nailed.
-
-H. **Chip roadmap:**
-   - For every remaining chip, value each eligible gameweek:
-     - Bench Boost: the bench's projected points that week, needing four nailed bench players with decent fixtures.
-     - Free Hit: the best Free Hit XI minus Vuk's own XI, which is highest in blanks, doubles or weeks when many of his players face hard fixtures.
-     - Wildcard, second half: timed before fixture swings or doubles.
-     - Triple Captain: a double gameweek, or the single best captain fixture.
-   - Recommend a plan through GW19 and a first view of the second half (GW20 onwards), with what would change it.
-   - First-half chips are lost after the GW19 deadline.
-
-I. **Plan check:** compare with `/areas/fpl.md` and say whether each recommendation follows the saved plan or deviates from it, and why.
-
-## 5. The two options
-
-- **Option A** is the recommendation: the highest projected points over GW n to n+5 at a risk level that fits the chase or protect posture. It may well be the differential route.
-- **Option B** must be a real alternative, not a near-copy. If A is the safer or template route, B is the best data-backed differential route; if A is the differential, B is the safer route.
-- Both are fully specified and legal.
-
-## 6. Output format: full brief (exactly this, nothing more)
-
-Title line: `GW{n} brief | deadline Day DD Mon HH:MM UK | data as of HH:MM`
+Title line: `GW{n} brief | deadline Day DD Mon HH:MM UK | data as of HH:MM`. Add "(update)" for the second brief.
 
 **1. Exec summary**
 
@@ -123,13 +106,16 @@ Title line: `GW{n} brief | deadline Day DD Mon HH:MM UK | data as of HH:MM`
 | Projected points | GW n, and GW n to n+5 | |
 | Risk | template or differential; top-10k EO of the key players | |
 
-**2. Why** (3 to 5 bullets): the decisive numbers and fixtures behind Option A, and the trade-off against B. No full analysis.
+**2. Why** (3 to 5 bullets): the decisive numbers and fixtures behind Option A, and the trade-off against B. Not the full analysis.
 
-**3. Edges the market is missing** (1 to 3): player, price, top-10k EO, the data point, what would kill it, and "act now" or "watch". If the scan finds nothing strong, say "No strong edge this week" rather than forcing one.
+**3. Edges the market is missing** (1 to 3): player, price, top-10k EO, the data point, what would kill it, and "act now" or "watch". If nothing is strong, say "No strong edge this week".
 
 **4. Chip roadmap:** a table from GW n to GW19 (GW, plan, why, what would change it), then one line on the second half.
 
-**5. Before the deadline:** a one-line plan check; up to 3 things that could change the call; when the final check arrives.
+**5. Before the deadline:**
+- A one-line plan check.
+- Up to 3 things that could change the call.
+- The latest model review line, if a review ran since the last brief.
 
 **6. Squad check:** one line saying the rebuilt squad and free-transfer estimate. Then: "Reply 'confirmed', or tell me any transfer you've made since the last deadline, and I'll redo the moves."
 
@@ -139,25 +125,28 @@ Rules:
 - Links in a short Sources list at the end.
 - British English, prices as £x.xm, times in UK time.
 - No em dashes, no filler.
+- Name players with their club where names clash, for example Palmer (CHE) and Palmer (IPS).
 
-## 7. Output format: final check
-
-Title line: `GW{n} final check | deadline HH:MM UK`
-
-- **Verdict:** "Call stands: Option A", or "Change: ..." with the new exec-summary row(s).
-- **Up to 5 bullets** covering what changed since the brief: injuries, line-up leaks, press conferences, price changes. Each one with source and time, and labelled non-start or hook risk where relevant.
-- If nothing material changed: "No material changes. Option A stands."
-
-## 8. After Vuk replies
+## 6. After Vuk replies
 
 - When he confirms moves, chips or plan changes, update `/areas/fpl.md`: squad, bank, free transfers, chips and plan. Read the file first.
 - If he asks why, give the underlying analysis then.
-- If he made transfers the data can't see yet, redo the exec summary with them.
+- If he made transfers the data can't see yet, rerun the optimiser with his new squad and redo the exec summary.
 
-## 9. Checks before sending
+## 7. Review and improvement loop
+
+- **When:** the gate prints REVIEW once FPL marks a gameweek's data final. Run `python3 -m fpl.review N`.
+- **What it does:**
+  - Scores that gameweek's logged projections against actual points: rank correlation, error, bias, the model's top 20, and Vuk's XI and captain.
+  - Appends the result to `reviews/2026-27.csv`, the season-long track record.
+  - Every 3rd review, re-tunes the model (`python -m fpl.backtest --tune`). Tuning uses last season plus this season up to 4 gameweeks ago. New settings are kept only if they do at least as well on the 4 most recent gameweeks and on last season's held-out period.
+- **After it runs:** commit `reviews/`, `params.json` and `backtest/REPORT.md`, push, and carry the one-line summary into the next brief.
+- **Rule changes:** changes to the rules in this file, as opposed to the model's settings, are proposed to Vuk with the evidence and made only when he agrees.
+
+## 8. Checks before sending
 
 - Every number in the summary has a source from this run.
-- Both options are legal and affordable; bank arithmetic shown in the working.
+- Both options are legal and affordable (the optimiser guarantees this; recheck any manual change).
 - The deadline is right and in UK time.
 - Nothing in the brief contradicts another part of it.
 - Option B is genuinely different from A.

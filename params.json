@@ -1,0 +1,28 @@
+{
+  "updated": "2026-11-23T00:57:56+00:00",
+  "params": {
+    "min_window": 6,
+    "min_decay": 0.6,
+    "rate_decay": 0.97,
+    "k_rate": 12.0,
+    "k_prior": 16.0,
+    "team_decay": 0.95,
+    "k_team": 8.0,
+    "home": 1.2,
+    "promoted_att": 0.85,
+    "promoted_def": 1.15,
+    "k_dc": 3.0,
+    "att_power": 0.6
+  },
+  "calibration": {
+    "xp_only": [
+      0.759,
+      0.7196
+    ],
+    "with_own": [
+      0.8705,
+      0.6085,
+      0.2209
+    ]
+  }
+}
