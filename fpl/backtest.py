@@ -137,6 +137,31 @@ def fit_calibration(res, per_pct):
     return {"xp_only": [round(float(v), 4) for v in c1], "with_own": [round(float(v), 4) for v in c2]}
 
 
+def _calibrated(res, per_pct, cal):
+    one = _pool_rows(res, per_pct)
+    a, b, c = cal["with_own"]
+    one["xpc"] = (a * one["p_play"] + b * one["xp"] + c * np.log1p(one["own"]) * one["p_play"]).clip(lower=0)
+    return one
+
+
+def fit_variance(res, per_pct, cal):
+    """Spread of points around the calibrated projection: Var ~ a*xP + b*xP^2 (least squares
+    on squared residuals). Used by the rank-aware objective (fpl/rank.py)."""
+    one = _calibrated(res, per_pct, cal)
+    X = np.column_stack([one["xpc"], one["xpc"] ** 2])
+    coef, *_ = np.linalg.lstsq(X, (one["points"] - one["xpc"]) ** 2, rcond=None)
+    return {"a": round(float(coef[0]), 4), "b": round(float(coef[1]), 4)}
+
+
+def variance_check(res, per_pct, cal, vp):
+    """Predicted against actual variance by projection band, on a period not used for the fit."""
+    one = _calibrated(res, per_pct, cal)
+    one["r2"] = (one["points"] - one["xpc"]) ** 2
+    one["pred"] = vp["a"] * one["xpc"] + vp["b"] * one["xpc"] ** 2
+    bins = pd.cut(one["xpc"], [-np.inf, 1, 2, 3, 4, 5, np.inf], labels=["under 1", "1-2", "2-3", "3-4", "4-5", "5+"])
+    return one.groupby(bins, observed=True).agg(n=("r2", "size"), actual_var=("r2", "mean"), predicted_var=("pred", "mean"))
+
+
 def captain_check(s, p):
     """Vuk's own squads this season: model captain within his XI against his actual captain."""
     rows = []
@@ -184,11 +209,12 @@ def tune(trains, p):
     return best
 
 
-def save_params(params, cal=None):
+def save_params(params, cal=None, variance=None):
     path = ROOT / "params.json"
     old = json.loads(path.read_text()) if path.exists() else {}
     path.write_text(json.dumps({"updated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                                "params": params, "calibration": cal or old.get("calibration")}, indent=2))
+                                "params": params, "calibration": cal or old.get("calibration"),
+                                "variance": variance or old.get("variance")}, indent=2))
 
 
 def main(tune_flag=False):
@@ -277,7 +303,11 @@ def main(tune_flag=False):
                   "| Period | Score before | Score after |", "| --- | --- | --- |"]
         lines += [f"| {k} | {t['old'][k]:.3f} | {t['new'][k]:.3f} |" for k in t["old"]]
         lines.append("")
-    save_params(params, cal)
+    vp = fit_variance(all_res["train (2025/26 GW6-24)"], per_pct, cal)
+    lines += ["## Spread of points around the projection (for the rank-aware objective)", "",
+              f"Fitted on train: Var(points) = {vp['a']} x xP + {vp['b']} x xP^2. Checked on valid:", "",
+              variance_check(valid, per_pct, cal, vp).round(2).to_markdown(), ""]
+    save_params(params, cal, vp)
     lines += ["## Parameters", "", "```json", json.dumps(params, indent=2), "```", ""]
     REPORT.parent.mkdir(exist_ok=True)
     REPORT.write_text("\n".join(lines))

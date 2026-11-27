@@ -4,6 +4,7 @@ Given projections for the next gameweeks and the current squad, finds the squad
 after this week's transfers that maximises discounted expected points:
 
   maximise  sum over gw of  d^k x [ xP(starting XI) + xP(captain) + bench_w x xP(bench) ]
+            (+ optional rank bonus per starter and captain, see fpl/rank.py)
   subject to  15 players, 2/5/5/3, max 3 per club, budget at selling prices,
               exactly T transfers, valid XI each gameweek (1 GK, 3-5 DEF, 2-5 MID, 1-3 FWD)
 
@@ -33,17 +34,24 @@ def _table(proj, gws):
 
 
 def solve(proj, info, squad, bank, gws, transfers, decay=DECAY, bench_w=BENCH_W,
-          forbid_in=(), require_in=(), unlimited=False, budget_total=None):
+          forbid_in=(), require_in=(), unlimited=False, budget_total=None, bonus=None):
     """Best squad after exactly `transfers` transfers (or any number if unlimited).
 
     squad: dict element -> selling price in £m. bank in £m. Prices in info["price"] (£m).
     budget_total: for a Free Hit, the money available (selling value + bank).
+    bonus: optional DataFrame (element, gw, start, cap) from rank.bonus_table: objective
+      credit for starting / captaining a player, on top of his xP. Reported points stay pure xP.
     Returns a dict with transfers, XI, captain and bench per gameweek, and points.
     """
     xp = _table(proj, gws)
     info = info.set_index("element")
     w = np.array([decay ** k for k in range(len(gws))])
-    score = (xp.values * w).sum(axis=1)
+    if bonus is not None:
+        b_start = bonus.pivot_table(index="element", columns="gw", values="start", aggfunc="sum").reindex(columns=gws).fillna(0)
+        b_cap = bonus.pivot_table(index="element", columns="gw", values="cap", aggfunc="sum").reindex(columns=gws).fillna(0)
+    else:
+        b_start = b_cap = pd.DataFrame(0.0, index=xp.index, columns=gws)
+    score = ((xp.values + b_start.reindex(xp.index).fillna(0).values) * w).sum(axis=1)
     cand = set(squad)
     for pos in QUOTA:
         ids = [e for e in xp.index if info.at[e, "pos"] == pos] if len(xp) else []
@@ -52,6 +60,8 @@ def solve(proj, info, squad, bank, gws, transfers, decay=DECAY, bench_w=BENCH_W,
     cand |= set(require_in)
     cand = [e for e in cand if e in info.index and e not in set(forbid_in) - set(squad)]
     xp = xp.reindex(cand).fillna(0)
+    bs = b_start.reindex(cand).fillna(0).values
+    bc = b_cap.reindex(cand).fillna(0).values
     n, G = len(cand), len(gws)
     owned = np.array([e in squad for e in cand])
     price = np.array([squad[e] if e in squad else info.at[e, "price"] for e in cand])
@@ -67,8 +77,8 @@ def solve(proj, info, squad, bank, gws, transfers, decay=DECAY, bench_w=BENCH_W,
     for g in range(G):
         for i in range(n):
             v = w[g] * xp.values[i, g]
-            cost[Y(g, i)] -= v * (1 - bench_w)
-            cost[C(g, i)] -= v
+            cost[Y(g, i)] -= v * (1 - bench_w) + w[g] * bs[i, g]
+            cost[C(g, i)] -= v + w[g] * bc[i, g]
             cost[X(i)] -= v * bench_w
 
     rows, lo, hi = [], [], []
@@ -125,6 +135,8 @@ def solve(proj, info, squad, bank, gws, transfers, decay=DECAY, bench_w=BENCH_W,
                               "bench": out_b + gk_b, "xi_points": round(xi_pts, 2),
                               "bench_points": round(sum(xp.at[e, gw] for e in bench), 2)})
     plan["objective"] = round(-res.fun, 2)
+    plan["rank_bonus"] = round(sum(w[g] * (bs[i, g] * x[Y(g, i)] + bc[i, g] * x[C(g, i)])
+                                   for g in range(G) for i in range(n)), 2)
     plan["points_by_gw"] = [wk["xi_points"] for wk in plan["weeks"]]
     return plan
 

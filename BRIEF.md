@@ -10,7 +10,12 @@ Everything FPL runs in Vuk's single Claude chat. One scheduled message arrives e
 - **Fixtures are central.** Targets come from fixture runs over the next 6 gameweeks, rated by opponent strength (model team ratings, betting odds), not FPL's difficulty rating.
 - **Chips are planned weeks ahead.** Never recommend a chip for this gameweek without comparing it with every other gameweek it could be played in.
 - **Hits:** a -4 only if the extra transfer gains 6+ projected points over the next 3 gameweeks, arithmetic shown.
-- **Goal:** top 10k overall. Rank outside 10,000: lean towards differentials on close calls (chase). Inside: lean towards the template on close calls (protect).
+- **Always hunt for edge by deviating from the template** (Vuk, 27 Nov 2026). Calculated risks, not deviation for its own sake: every deviation must be data-backed, and its size is set by the rank maths below.
+- **Goal:** top 10k overall. The optimiser plays for rank, not points (`fpl/rank.py`):
+  - It knows the gap to the manager at rank 10,000 (collector, every run) and who the top 10k own and captain (a 1,000-team sample each gameweek).
+  - Behind the target, spread against the top 10k is worth points: a low-owned starter or captain earns a bonus, a template one a penalty, both sized by kappa = gap / (2 x gameweeks left x weekly spread²).
+  - Ahead of it, the signs flip and the template is preferred. As the gap closes, the plan converges on pure expected points.
+  - A player who won't play earns nothing for being low-owned: the bonus scales with the spread of his points, which is 0 at 0 xP.
 - **Advice only.** Never log in to FPL or make transfers.
 
 ## 2. The daily check
@@ -43,11 +48,14 @@ Everything FPL runs in Vuk's single Claude chat. One scheduled message arrives e
   - **Captain table and chip values:** Bench Boost points and Free Hit gain per gameweek, to GW19 in the first half.
   - **Fixture ratings:** attack ease and clean-sheet odds per team over 6 gameweeks.
   - **Edge flags:** the data side of the edge scan, with owned players marked.
+  - **Rank objective:** the gap to rank 10,000, gameweeks left, kappa, and what it means in points (captain and slot bands).
+  - **Rank plans** (Option A by default) next to **points-only plans** (Option B): each with the template count (starters 60%+ owned in the top 10k) and the XI's top-10k ownership.
+  - **Deviation candidates:** for each template starter, low-owned alternatives (under 30% top-10k, nailed) whose rank-adjusted 6-GW value beats his, with the xP cost.
 - **Commit** `predictions/` and push. Brief runs may commit data files (`predictions/`, `reviews/`, `params.json`, `backtest/REPORT.md`), never code. Code changes only when Vuk asks.
 - **Web sources (Claude):**
   - Press conferences and team news: premierleague.com, club sites, BBC, Sky, The Athletic.
   - Betting odds: match odds, goal totals, anytime scorer, named and dated.
-  - LiveFPL for top-10k EO, with Fantasy Football Scout's top-10k write-ups as the fallback.
+  - Top-10k ownership and EO come from the collector's own sample (`top10k/<gw>.json`, the previous gameweek's teams). If it's missing, use LiveFPL or fpl.team, then Fantasy Football Scout's top-10k write-ups.
   - Opinion sites only for a specific, dated argument, labelled as opinion.
 - **Plan:** read `/areas/fpl.md` in memory (chip plan, agreed moves). If the data contradicts it, for example a chip already used, the data wins; say so.
 - **Source rules:**
@@ -79,15 +87,17 @@ Everything FPL runs in Vuk's single Claude chat. One scheduled message arrives e
 - **Transfers:**
   - Start from the optimiser's plans. Check each "in" player's news and odds. Apply the hit rule using `gain_3gw_after_hits`.
   - Rolling has value: the optimiser counts 1.5 points per free transfer carried, an assumption not yet backtested.
-- **Captain:** the highest projection after news adjustments. EO only breaks near-ties (within about 0.5 points), using the chase or protect posture.
+- **Captain:** the highest rank-adjusted value (xP plus rank bonus, `rank_cap_value` in the captain table) after news adjustments. A differential captain must still pass the nailed check below.
+- **Deviation scan (every brief):** from `deviation_candidates`, keep the 1 to 3 strongest swaps of a template starter for a low-owned one. Each needs the xP cost, the ownership swing and the reason in the data (fixtures, odds, finishing luck, set pieces). At least one goes in the brief as an edge or as Option A, unless none passes the nailed and odds checks.
 - **Bench:** the optimiser's order, adjusted for news. The first sub must be nailed.
 - **Chips:**
   - Use the chip values to GW19 (Bench Boost = bench points; Free Hit = gain over your XI). Add blanks and doubles from news.
   - Recommend a roadmap through GW19, plus a first view of the second half.
   - First-half chips are lost after the GW19 deadline.
 - **Option A and Option B:**
-  - A is the recommendation.
-  - B must be a real alternative: if A is the safer or template route, B is the best data-backed differential route, and the other way round. Use the optimiser's other plans, or re-solve with `forbid_in` or `require_in`.
+  - A is the recommendation: the rank plan, after news and the checks above.
+  - B is the points-only plan, so the cost of deviating is visible. If the two plans are the same, B is A plus the strongest deviation candidate.
+  - Override the rank plan only with a reason from news or odds, and say so.
   - Both must be legal and affordable.
 
 ## 5. Output format: full brief (exactly this, nothing more)
@@ -104,9 +114,9 @@ Title line: `GW{n} brief | deadline Day DD Mon HH:MM UK | data as of HH:MM`. Add
 | Bench order | 1st, 2nd, 3rd sub; GK2 | |
 | Chip | play or hold (and which) | |
 | Projected points | GW n, and GW n to n+5 | |
-| Risk | template or differential; top-10k EO of the key players | |
+| Risk | template count (XI starters 60%+ owned in the top 10k); top-10k ownership of the key players | |
 
-**2. Why** (3 to 5 bullets): the decisive numbers and fixtures behind Option A, and the trade-off against B. Not the full analysis.
+**2. Why** (3 to 5 bullets): the decisive numbers and fixtures behind Option A, and the trade-off against B. Not the full analysis. One bullet is the rank maths: the gap to rank 10,000 and what it makes worth trading (captain and slot bands).
 
 **3. Edges the market is missing** (1 to 3): player, price, top-10k EO, the data point, what would kill it, and "act now" or "watch". If nothing is strong, say "No strong edge this week".
 
@@ -139,7 +149,7 @@ Rules:
 - **What it does:**
   - Scores that gameweek's logged projections against actual points: rank correlation, error, bias, the model's top 20, and Vuk's XI and captain.
   - Appends the result to `reviews/2026-27.csv`, the season-long track record.
-  - Every 3rd review, re-tunes the model (`python -m fpl.backtest --tune`). Tuning uses last season plus this season up to 4 gameweeks ago. New settings are kept only if they do at least as well on the 4 most recent gameweeks and on last season's held-out period.
+  - Every 3rd review, re-tunes the model (`python -m fpl.backtest --tune`), which also refits the spread of points around the projection used by the rank objective. Tuning uses last season plus this season up to 4 gameweeks ago. New settings are kept only if they do at least as well on the 4 most recent gameweeks and on last season's held-out period.
 - **After it runs:** commit `reviews/`, `params.json` and `backtest/REPORT.md`, push, and carry the one-line summary into the next brief.
 - **Rule changes:** changes to the rules in this file, as opposed to the model's settings, are proposed to Vuk with the evidence and made only when he agrees.
 
