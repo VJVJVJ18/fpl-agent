@@ -12,9 +12,11 @@ Exit codes:
 """
 import json
 import os
+import random
 import sys
 import time
 import urllib.error
+from concurrent.futures import ThreadPoolExecutor
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -35,6 +37,15 @@ REQUIRED_ELEMENT_FIELDS = [
     "defensive_contribution", "selected_by_percent", "penalties_order", "ep_next",
 ]
 REQUIRED_EVENT_FIELDS = ["id", "deadline_time", "finished", "data_checked", "is_current", "is_next"]
+
+# Top-10k field: who the managers Vuk has to beat actually own and captain.
+OVERALL_LEAGUE = 314       # FPL's overall league
+TARGET_RANK = 10_000       # Vuk's goal
+PAGE_SIZE = 50             # entries per standings page
+PAGE_STEP = 4              # sample every 4th standings page (50 pages across ranks 1-10,000)
+PER_PAGE = 20              # entries sampled per page -> 1,000 teams, ownership error under 1.6 points
+MIN_SAMPLE = 300           # below this the sample is not saved and is retried next run
+WORKERS = 5                # parallel picks requests (each still pauses between calls)
 
 
 def get(path, tries=3):
@@ -68,6 +79,58 @@ def load_if_exists(path):
         return json.loads(path.read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError):
         return None
+
+
+def standings(page, fetch):
+    return fetch(f"leagues-classic/{OVERALL_LEAGUE}/standings/?page_standings={page}")["standings"]["results"]
+
+
+def target_line(fetch):
+    """Total points of the manager at the target rank (last row of page 200)."""
+    rows = [r for r in standings(TARGET_RANK // PAGE_SIZE, fetch) if r["rank"] <= TARGET_RANK]
+    last = max(rows, key=lambda r: r["rank"])
+    return {"rank": last["rank"], "total": last["total"]}
+
+
+def field_sample(gw, fetch, seed=None):
+    """Ownership, captaincy and effective ownership (mean multiplier) in a sample of top-10k teams.
+
+    Systematic sample by rank: every PAGE_STEP-th standings page from a random offset,
+    PER_PAGE random entries from each. Picks for a gameweek are public once its deadline passes.
+    """
+    rng = random.Random(seed if seed is not None else gw)
+    entries = []
+    for page in range(1 + rng.randrange(PAGE_STEP), TARGET_RANK // PAGE_SIZE + 1, PAGE_STEP):
+        rows = [r for r in standings(page, fetch) if r["rank"] <= TARGET_RANK]
+        entries += rng.sample(rows, min(PER_PAGE, len(rows)))
+
+    def picks(row):
+        try:
+            return fetch(f"entry/{row['entry']}/event/{gw}/picks/")
+        except RuntimeError:
+            return None
+
+    with ThreadPoolExecutor(WORKERS) as pool:
+        results = [r for r in pool.map(picks, entries) if r and r.get("picks")]
+    n = len(results)
+    if n < MIN_SAMPLE:
+        raise RuntimeError(f"top-10k sample for GW{gw}: only {n} of {len(entries)} teams fetched")
+    own, cap, mult, chips = {}, {}, {}, {}
+    for r in results:
+        chip = r.get("active_chip") or "none"
+        chips[chip] = chips.get(chip, 0) + 1
+        for p in r["picks"]:
+            e = p["element"]
+            own[e] = own.get(e, 0) + 1
+            mult[e] = mult.get(e, 0) + p["multiplier"]
+            cap[e] = cap.get(e, 0) + (1 if p["is_captain"] else 0)
+    return {
+        "event": gw, "teams": n, "requested": len(entries), "rank_max": TARGET_RANK,
+        "fetched_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "chips": {k: round(v / n, 4) for k, v in chips.items()},
+        "players": {str(e): {"own": round(own[e] / n, 4), "cap": round(cap[e] / n, 4),
+                             "eo": round(mult[e] / n, 4)} for e in own},
+    }
 
 
 def check_schema(bootstrap):
@@ -150,11 +213,30 @@ def main():
     except RuntimeError as err:
         meta["problems"].append(str(err))
 
+    # 4. The field: the target rank's score each run, and a top-10k ownership sample once
+    #    per gameweek after its deadline. Failures here are warnings, not problems.
+    meta["warnings"] = []
+    try:
+        meta["target"] = {**target_line(get), "event": meta["current_event"]}
+    except (RuntimeError, KeyError, ValueError) as err:
+        meta["warnings"].append(f"target line: {err}")
+    done = sorted(int(p.stem) for p in (out / "top10k").glob("*.json")) if (out / "top10k").exists() else []
+    gw = meta["current_event"]
+    if gw and gw not in done:
+        try:
+            save(out, f"top10k/{gw}.json", field_sample(gw, get))
+            done.append(gw)
+        except (RuntimeError, KeyError, ValueError) as err:
+            meta["warnings"].append(str(err))
+    meta["top10k_events"] = sorted(done)
+
     save(out, "meta.json", meta)
     print(f"Team: {meta.get('team_name')} | current GW {meta['current_event']} | "
           f"next GW {meta['next_event']} deadline {meta['next_deadline_utc']} UTC")
     for p in meta["problems"]:
         print(f"PROBLEM: {p}")
+    for w in meta["warnings"]:
+        print(f"WARNING: {w}")
     return 2 if meta["problems"] else 0
 
 
