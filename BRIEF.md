@@ -16,6 +16,7 @@ Everything FPL runs in Vuk's single Claude chat. One scheduled message arrives e
   - Behind the target, spread against the top 10k is worth points: a low-owned starter or captain earns a bonus, a template one a penalty, both sized by kappa = gap / (2 x gameweeks left x weekly spread²).
   - Ahead of it, the signs flip and the template is preferred. As the gap closes, the plan converges on pure expected points.
   - A player who won't play earns nothing for being low-owned: the bonus scales with the spread of his points, which is 0 at 0 xP.
+- **No goalkeeper rotation, ever** (Vuk, 27 Nov 2026). One starting keeper plays every gameweek he's available; the backup only covers an injury or ban, and plays in a Bench Boost week. The optimiser enforces this (`starting_gk` in each plan). Never recommend a second keeper to rotate by fixture, and never frame a keeper transfer that way.
 - **Advice only.** Never log in to FPL or make transfers.
 
 ## 2. The daily check
@@ -89,7 +90,7 @@ Everything FPL runs in Vuk's single Claude chat. One scheduled message arrives e
   - Rolling has value: the optimiser counts 1.5 points per free transfer carried, an assumption not yet backtested.
 - **Captain:** the highest rank-adjusted value (xP plus rank bonus, `rank_cap_value` in the captain table) after news adjustments. A differential captain must still pass the nailed check below.
 - **Deviation scan (every brief):** from `deviation_candidates`, keep the 1 to 3 strongest swaps of a template starter for a low-owned one. Each needs the xP cost, the ownership swing and the reason in the data (fixtures, odds, finishing luck, set pieces). At least one goes in the brief as an edge or as Option A, unless none passes the nailed and odds checks.
-- **Bench:** the optimiser's order, adjusted for news. The first sub must be nailed.
+- **Bench:** the optimiser's order, adjusted for news. The first sub must be nailed. The backup keeper is cover only: a cheap keeper who plays (so a Bench Boost isn't wasted) beats a non-playing one only if the price difference is small.
 - **Chips:**
   - Use the chip values to GW19 (Bench Boost = bench points; Free Hit = gain over your XI). Add blanks and doubles from news.
   - Recommend a roadmap through GW19, plus a first view of the second half.

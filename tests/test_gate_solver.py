@@ -93,6 +93,25 @@ class Solver(unittest.TestCase):
         plan = solver.solve(self.proj, self.info, self.squad, 0.0, self.gws, 1)
         self.check_legal(plan, 0.0)
 
+    def test_no_goalkeeper_rotation(self):
+        # Keepers 1 and 2 (both owned) alternate the better fixture: the plan must not rotate them.
+        proj = self.proj.copy()
+        proj.loc[(proj["element"] == 1) & (proj["gw"] == 12), "xp"] = 6.0
+        proj.loc[(proj["element"] == 2) & (proj["gw"] == 13), "xp"] = 6.0
+        plan = solver.solve(proj, self.info, self.squad, 0.0, self.gws, 0, forbid_in=[3, 4])
+        starters = {next(e for e in wk["xi"] if e in (1, 2)) for wk in plan["weeks"]}
+        self.assertEqual(len(starters), 1)
+        self.assertEqual(plan["starting_gk"], starters.pop())
+
+    def test_backup_keeper_covers_an_absence_only(self):
+        proj = self.proj.copy()
+        proj.loc[proj["element"] == 1, "xp"] = 5.0
+        proj.loc[(proj["element"] == 1) & (proj["gw"] == 12), "xp"] = 0.0   # starter out for one week
+        plan = solver.solve(proj, self.info, self.squad, 0.0, self.gws, 0, forbid_in=[3, 4])
+        self.assertEqual(plan["starting_gk"], 1)
+        self.assertIn(2, plan["weeks"][0]["xi"])
+        self.assertIn(1, plan["weeks"][1]["xi"])
+
     def test_hit_accounting(self):
         plans = solver.compare_transfers(self.proj, self.info, self.squad, 5.0, ft=1, gws=self.gws)
         self.assertEqual([p["hit_cost"] for p in plans], [0, 0, 4])

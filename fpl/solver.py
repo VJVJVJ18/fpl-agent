@@ -6,7 +6,9 @@ after this week's transfers that maximises discounted expected points:
   maximise  sum over gw of  d^k x [ xP(starting XI) + xP(captain) + bench_w x xP(bench) ]
             (+ optional rank bonus per starter and captain, see fpl/rank.py)
   subject to  15 players, 2/5/5/3, max 3 per club, budget at selling prices,
-              exactly T transfers, valid XI each gameweek (1 GK, 3-5 DEF, 2-5 MID, 1-3 FWD)
+              exactly T transfers, valid XI each gameweek (1 GK, 3-5 DEF, 2-5 MID, 1-3 FWD),
+              one designated starting goalkeeper who starts every gameweek he is available
+              (no goalkeeper rotation, Vuk's rule; the backup only covers absences)
 
 Usage (from the brief):
   from fpl import live, solver
@@ -26,6 +28,7 @@ DECAY = 0.9          # weight of each later gameweek
 BENCH_W = 0.1        # value of bench points (auto-sub cover)
 FT_VALUE = 1.5       # assumed value of a free transfer carried to next week (not yet backtested)
 CANDIDATES = 30      # best players per position considered, plus the current squad
+AVAILABLE_XP = 0.3   # a keeper projecting less than this in a gameweek counts as unavailable
 
 
 def _table(proj, gws):
@@ -68,11 +71,12 @@ def solve(proj, info, squad, bank, gws, transfers, decay=DECAY, bench_w=BENCH_W,
     pos = np.array([info.at[e, "pos"] for e in cand])
     club = np.array([info.at[e, "team"] for e in cand])
 
-    # Variable layout: x[i] | y[g, i] | c[g, i]
-    nv = n + 2 * G * n
+    # Variable layout: x[i] | y[g, i] | c[g, i] | s[i] (designated starting goalkeeper)
+    nv = n + 2 * G * n + n
     X = lambda i: i
     Y = lambda g, i: n + g * n + i
     C = lambda g, i: n + G * n + g * n + i
+    S = lambda i: n + 2 * G * n + i
     cost = np.zeros(nv)
     for g in range(G):
         for i in range(n):
@@ -99,6 +103,17 @@ def solve(proj, info, squad, bank, gws, transfers, decay=DECAY, bench_w=BENCH_W,
         add({X(i): 1 for i in range(n) if not owned[i]}, transfers, transfers)
     for e in require_in:
         add({X(cand.index(e)): 1}, 1, 1)
+    # No goalkeeper rotation: one designated starter, who must start whenever he is available.
+    gks = [i for i in range(n) if pos[i] == "GK"]
+    add({S(i): 1 for i in gks}, 1, 1)
+    for i in range(n):
+        if pos[i] != "GK":
+            add({S(i): 1}, 0, 0)
+            continue
+        add({S(i): 1, X(i): -1}, -np.inf, 0)
+        for g in range(G):
+            if xp.values[i, g] > AVAILABLE_XP:
+                add({Y(g, i): 1, S(i): -1}, 0, np.inf)
     for g in range(G):
         add({Y(g, i): 1 for i in range(n)}, 11, 11)
         add({C(g, i): 1 for i in range(n)}, 1, 1)
@@ -118,7 +133,8 @@ def solve(proj, info, squad, bank, gws, transfers, decay=DECAY, bench_w=BENCH_W,
         return None
     x = res.x.round().astype(int)
     chosen = [cand[i] for i in range(n) if x[X(i)]]
-    plan = {"transfers_out": [e for e in squad if e not in chosen],
+    gk_start = next((cand[i] for i in range(n) if x[S(i)]), None)
+    plan = {"transfers_out": [e for e in squad if e not in chosen], "starting_gk": gk_start,
             "transfers_in": [e for e in chosen if e not in squad],
             "squad": chosen, "weeks": []}
     spent = sum(price[i] for i in range(n) if x[X(i)])
