@@ -6,6 +6,12 @@ Everything FPL runs in Vuk's single Claude chat. One scheduled message arrives e
 
 - **Data first, by far.** Every recommendation rests on numbers, with the decisive number stated. Opinion pieces are never the reason for a move.
 - **Not consensus.** Template moves are fine when the data backs them, never because "everyone is doing it". Top-10k ownership (EO) is a risk measure and a way to spot where the market is wrong, not evidence of points.
+- **Data only, no opinions** (Vuk, 28 Nov 2026). Allowed inputs:
+  - FPL's own data (the collector);
+  - bookmaker prices (match odds, totals, scorer odds), which are the market's forecast, not a pundit's;
+  - primary facts: official team news, press-conference quotes, confirmed injuries, bans and line-ups.
+
+  Never a reason for a move: pundit picks, "template" talk, what top managers, content creators or social media are doing. Ownership is not in the projections at all (removed 28 Nov 2026: no out-of-sample gain, see `research/REPORT.md`). It is used only in the rank maths, as a measure of what rivals hold.
 - **Data-backed differentials are welcome.** If the numbers support a low-owned player or an unusual move, recommend it and size the risk. Vuk is happy to take those risks.
 - **Fixtures are central.** Targets come from fixture runs over the next 6 gameweeks, rated by opponent strength (model team ratings, betting odds), not FPL's difficulty rating.
 - **Chips are planned weeks ahead.** Never recommend a chip for this gameweek without comparing it with every other gameweek it could be played in.
@@ -26,7 +32,7 @@ Everything FPL runs in Vuk's single Claude chat. One scheduled message arrives e
    - Skip this only if `list_triggers` already shows an enabled one for tomorrow.
    - This chain is the only schedule. Never create other schedules or new chats.
 2. `cd /home/claude/fpl-agent && git pull`. Clone the repo there if it's missing.
-3. Install the packages if missing: `pip install -q --break-system-packages -r requirements.txt`.
+3. Install the packages if missing: `pip install -q --break-system-packages -r requirements.txt -r research/requirements.txt` (the second file is for the shadow model and the research lab).
 4. Run `python3 -m fpl.gate`. Then act on each line it prints:
    - **SKIP**: reply with that one line only. No notification, no other work.
    - **STALE**:
@@ -52,12 +58,14 @@ Everything FPL runs in Vuk's single Claude chat. One scheduled message arrives e
   - **Rank objective:** the gap to rank 10,000, gameweeks left, kappa, and what it means in points (captain and slot bands).
   - **Rank plans** (Option A by default) next to **points-only plans** (Option B): each with the template count (starters 60%+ owned in the top 10k) and the XI's top-10k ownership.
   - **Deviation candidates:** for each template starter, low-owned alternatives (under 30% top-10k, nailed) whose rank-adjusted 6-GW value beats his, with the xP cost.
-- **Commit** `predictions/` and push. Brief runs may commit data files (`predictions/`, `reviews/`, `params.json`, `backtest/REPORT.md`), never code. Code changes only when Vuk asks.
+  - **Flow alarms:** players the model rates as nailed, with no FPL flag, whom managers are selling hardest this week (see section 4).
+  - **Shadow:** whether the shadow model's projections were logged for the review (`predictions/<season>/gw<n>_shadow.csv`). Never used for decisions.
+- **Commit** `predictions/` and push. Brief runs may commit data files (`predictions/`, `reviews/`, `params.json`, `backtest/REPORT.md`, `research/REPORT.md`), never code. Code changes only when Vuk asks.
 - **Web sources (Claude):**
   - Press conferences and team news: premierleague.com, club sites, BBC, Sky, The Athletic.
   - Betting odds: match odds, goal totals, anytime scorer, named and dated.
-  - Top-10k ownership and EO come from the collector's own sample (`top10k/<gw>.json`, the previous gameweek's teams). If it's missing, use LiveFPL or fpl.team, then Fantasy Football Scout's top-10k write-ups.
-  - Opinion sites only for a specific, dated argument, labelled as opinion.
+  - Top-10k ownership and EO come from the collector's own sample (`top10k/<gw>.json`, the previous gameweek's teams). If it's missing, use LiveFPL or fpl.team (data tools, not opinion).
+  - Opinion sites, pundits and "who the top managers picked": never.
 - **Plan:** read `/areas/fpl.md` in memory (chip plan, agreed moves). If the data contradicts it, for example a chip already used, the data wins; say so.
 - **Source rules:**
   - No fact without a source read in this run.
@@ -73,6 +81,7 @@ Everything FPL runs in Vuk's single Claude chat. One scheduled message arrives e
   - It holds up on this season's data.
   - Calibrated projections are slightly conservative at the top end.
 - **Minutes are the model's blind spot.** It learns minutes from recent matches only. Adjust every player you recommend using press conferences and news: injuries, rotation, Europe, returns. Say when you overrode the model and why.
+- **Flow alarms** (`flow_alarms`). Selling is informed: in the research lab, players the model rated 90%+ to play whose ownership fell 5%+ into the deadline blanked 24% of the time (12% for the rest) and scored 0.50 points below projection; at a 10%+ fall, 32% and 0.86 points. Buying carried no edge. For every alarm on a player in the squad or in a plan, check the team news before trusting his projection, and say what you found. An alarm is a prompt to look, not a projection change, until the shadow model proves it adds value beyond FPL's own flags.
 - **Differentials need one extra check.** In the backtest, low-owned top picks delivered about 89 to 92% of their raw projection, against 96% for template picks. Before recommending one, confirm:
   - it's nailed (projected 60+ minutes at least 75% of the time, and no news against it);
   - the fixtures and the odds support it.
@@ -151,7 +160,9 @@ Rules:
   - Scores that gameweek's logged projections against actual points: rank correlation, error, bias, the model's top 20, and Vuk's XI and captain.
   - Appends the result to `reviews/2026-27.csv`, the season-long track record.
   - Every 3rd review, re-tunes the model (`python -m fpl.backtest --tune`), which also refits the spread of points around the projection used by the rank objective. Tuning uses last season plus this season up to 4 gameweeks ago. New settings are kept only if they do at least as well on the 4 most recent gameweeks and on last season's held-out period.
-- **After it runs:** commit `reviews/`, `params.json` and `backtest/REPORT.md`, push, and carry the one-line summary into the next brief.
+- **Shadow model:** the review also scores the shadow model (`fpl/shadow.py`) against the live one and appends to `reviews/2026-27_shadow.csv`. If it prints that the shadow passes the live gate (6+ gameweeks, ahead in 5 of 6, rank correlation +0.02 or more, top-20 not lower), propose promotion to Vuk with the numbers. Never promote it without his agreement.
+- **Research lab:** at the GW19 and GW30 reviews, also run `python3 -m research.run` (about 20 minutes). It rebuilds the evidence for every candidate signal and model and writes `research/REPORT.md` with a verdict (PROMOTE, SHADOW or REJECT) from the promotion gate. Report any change of verdict in the next brief.
+- **After it runs:** commit `reviews/`, `params.json`, `backtest/REPORT.md` and `research/REPORT.md`, push, and carry the one-line summary into the next brief.
 - **Rule changes:** changes to the rules in this file, as opposed to the model's settings, are proposed to Vuk with the evidence and made only when he agrees.
 
 ## 8. Checks before sending

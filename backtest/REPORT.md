@@ -1,6 +1,6 @@
 # Backtest report
 
-Generated 2026-11-23 00:57 UTC. Every prediction uses only data from before the gameweek it predicts. Accuracy is measured on the decision pool: players who played in the previous 4 gameweeks.
+Generated 2026-11-28 12:45 UTC. Every prediction uses only data from before the gameweek it predicts. Accuracy is measured on the decision pool: players who played in the previous 4 gameweeks.
 
 ## Accuracy by period
 
@@ -8,7 +8,8 @@ Generated 2026-11-23 00:57 UTC. Every prediction uses only data from before the 
 | --- | --- | --- | --- | --- | --- | --- |
 | train (2025/26 GW6-24) | 0.503 | 0.543 | 1.87 | +0.04 | 4.33 | 19 |
 | valid (2025/26 GW25-38) | 0.501 | 0.555 | 1.88 | +0.06 | 4.94 | 14 |
-| test (2026/27 GW6-10) | 0.520 | 0.567 | 1.77 | -0.00 | 4.73 | 5 |
+| holdout (2026/27 GW8-11) | 0.513 | 0.545 | 1.79 | -0.05 | 5.11 | 4 |
+| season to date (2026/27 GW6-11) | 0.509 | 0.568 | 1.80 | -0.01 | 4.76 | 6 |
 
 ## Against baselines (2025/26 GW6-38, one gameweek ahead)
 
@@ -35,17 +36,17 @@ Fitted coefficients: {"xp_only": [0.759, 0.7196], "with_own": [0.8705, 0.6085, 0
 | Version (valid period) | MAE 1 GW | Rank corr. 1 GW |
 | --- | --- | --- |
 | Raw | 1.880 | 0.501 |
-| Calibrated | 1.863 | 0.502 |
-| Calibrated + ownership | 1.861 | 0.502 |
+| Calibrated (live) | 1.863 | 0.502 |
+| Calibrated + ownership (research only, not used live) | 1.861 | 0.502 |
 
-Calibration by projected points, valid period, calibrated + ownership:
+Calibration by projected points, valid period, calibrated (live):
 
 | xp      |    n |   predicted |   actual |
 |:--------|-----:|------------:|---------:|
-| under 2 | 2226 |        1.09 |     1.2  |
-| 2 to 4  | 2660 |        2.94 |     2.85 |
-| 4 to 6  |  342 |        4.54 |     4.85 |
-| 6+      |   32 |        6.94 |     7.59 |
+| under 2 | 2202 |        1.08 |     1.19 |
+| 2 to 4  | 2743 |        2.97 |     2.88 |
+| 4 to 6  |  272 |        4.51 |     4.85 |
+| 6+      |   43 |        7.01 |     7.42 |
 
 ## Do low-owned picks deliver? (model's top 40 each gameweek, valid period)
 
@@ -59,17 +60,17 @@ Raw model:
 | 5 to 20% | 187 |        4.89 |     4.5  |
 | over 20% | 133 |        5.44 |     5.2  |
 
-Calibrated + ownership:
+Calibrated (live):
 
 | own      |   n |   predicted |   actual |
 |:---------|----:|------------:|---------:|
-| under 5% | 157 |        4.25 |     4.89 |
-| 5 to 20% | 234 |        4.25 |     4.4  |
-| over 20% | 169 |        4.75 |     5.08 |
+| under 5% | 240 |        4.24 |     4.34 |
+| 5 to 20% | 186 |        4.27 |     4.56 |
+| over 20% | 134 |        4.66 |     5.19 |
 
 ## Captaincy on Vuk's own XI (2026/27)
 
-Model's captain scored 37 points against 31 for the captain actually picked, over GW6-10 (same choice in 4 of 5 gameweeks).
+Model's captain scored 39 points against 33 for the captain actually picked, over GW6-11 (same choice in 5 of 6 gameweeks).
 
 |   gw |   model |   actual | same   |
 |-----:|--------:|---------:|:-------|
@@ -78,6 +79,20 @@ Model's captain scored 37 points against 31 for the captain actually picked, ove
 |    8 |       8 |        8 | True   |
 |    9 |       2 |        2 | True   |
 |   10 |       8 |        2 | False  |
+|   11 |       2 |        2 | True   |
+
+## Spread of points around the projection (for the rank-aware objective)
+
+Fitted on train: Var(points) = 3.3891 x xP + -0.0669 x xP^2. Checked on valid:
+
+| xpc     |    n |   actual_var |   predicted_var |
+|:--------|-----:|-------------:|----------------:|
+| under 1 | 1007 |         2.99 |            1.94 |
+| 1-2     | 1195 |         5.65 |            4.93 |
+| 2-3     | 1401 |         6.85 |            8.14 |
+| 3-4     | 1342 |        10.6  |           10.84 |
+| 4-5     |  227 |        13.99 |           13.38 |
+| 5+      |   88 |        18.88 |           18.43 |
 
 ## Parameters
 

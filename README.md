@@ -14,9 +14,18 @@ Data and model for the "Ekipa Nervno" FPL analyst. Advice only: nothing here log
 | `fpl/brief_data.py` | Each brief | Runs all of the above and writes `brief_data.json` |
 | `fpl/gate.py` | Every morning | SKIP, REVIEW or BRIEF (deadline within 36 hours) |
 | `fpl/review.py`, `fpl/backtest.py` | After each gameweek | Scores the projections, keeps the track record, re-tunes the model when it helps out of sample |
+| `fpl/shadow.py` | Each brief | The research lab's best candidate model, logged next to the live one and scored at each review; never used for decisions until it passes the live gate |
+| `research/` | GW19 and GW30 reviews | Research lab: point-in-time panel, signal scan, walk-forward models, decision tests with the real optimiser, promotion gate (`research/REPORT.md`) |
 | `BRIEF.md` | Vuk's Claude chat | The rulebook every brief follows |
 
-The `data` branch is replaced on each run, so the repo stays small. It holds only data anyone can see on the FPL site. Plans and recommendations are never stored here.
+The `data` branch is replaced on each run, so the repo stays small, but its files carry over from run to run. It holds only public data: FPL's own data, plus bookmaker odds from football-data.co.uk. Plans and recommendations are never stored here.
+
+`history/<season>/` on the `data` branch is the point-in-time record that no public archive keeps. It holds:
+- every player's injury flag, chance of playing, price, ownership and transfer counts, every run in the 48 hours before a deadline and daily otherwise;
+- a log of every news change;
+- the upcoming matches' odds, each time they move.
+
+It is never deleted. The research lab needs it to test signals at brief time rather than at the deadline.
 
 ## Settings
 
@@ -33,6 +42,13 @@ python -m fpl.squad https://raw.githubusercontent.com/VJVJVJ18/fpl-agent/data
 ## Backtest
 
 `python -m fpl.backtest` writes `backtest/REPORT.md`. `--tune` re-tunes the settings and keeps them only if out-of-sample accuracy does not drop.
+
+## Research lab
+
+```
+pip install -r research/requirements.txt
+python -m research.run      # about 20 minutes; writes research/REPORT.md
+```
 
 ## Tests
 

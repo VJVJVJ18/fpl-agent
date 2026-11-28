@@ -21,7 +21,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from . import live, model, rank, solver
+from . import live, model, rank, shadow, solver
 from . import squad as squad_mod
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -88,6 +88,42 @@ def edges(w, cur, nxt):
         flags.append({"type": "template player with weak 6-GW outlook", "name": r.name, "team": r.team,
                       "own": r.own, "xp_6gw": round(r.xp_total, 1), "rank_in_pos": int(r.rank_pos)})
     return flags
+
+
+def flow_alarms(boot, w, squad_ids, min_fall=0.05, min_net=5000, top_in_pos=30):
+    """Players the model rates as nailed, with no FPL flag, whose ownership is falling fast.
+
+    Research lab (research/REPORT.md), players the model gave a 90%+ chance of playing, by the
+    fall in their ownership into the deadline:
+      fall of 5%+    blanked 24% of the time (12% for the rest), 0.50 points below projection
+      fall of 10%+   blanked 32%, 0.86 points below projection
+    Selling is informed: it picks up injury and rotation news before the stats do. Buying
+    carried no such edge, so only selling is flagged. The thresholds are absolute, so early in
+    a transfer window, when little has moved, nothing is flagged. Not yet tested against FPL's
+    own flags (the collector records them from Nov 2026): a prompt to check the team news.
+    """
+    total = boot.get("total_players") or 0
+    els = pd.DataFrame(boot["elements"])
+    if not total or "transfers_out_event" not in els:
+        return []
+    els = els.set_index("id")
+    sel = els["selected_by_percent"].astype(float) / 100 * total
+    net = els["transfers_in_event"].astype(float) - els["transfers_out_event"].astype(float)
+    fall = 1 - (sel / (sel - net).clip(lower=1))          # share of owners lost this window
+    cand = w[(w["p60"] >= 0.75) & (w["status"] == "a")].copy()
+    if cand.empty:
+        return []
+    cand["fall"] = cand["element"].map(fall)
+    cand["net"] = cand["element"].map(net)
+    cand["rank_pos"] = cand.groupby("pos")["xp_decayed"].rank(ascending=False)
+    hit = cand[(cand["fall"] >= min_fall) & (cand["net"] <= -min_net) &
+               (cand["element"].isin(squad_ids) | (cand["rank_pos"] <= top_in_pos))]
+    return [{"type": "heavy net selling, no FPL flag: check team news",
+             "severity": "high (research: 32% blank rate)" if r.fall >= 0.10 else "medium (research: 24% blank rate)",
+             "name": r.name, "team": r.team, "pos": r.pos, "owned": int(r.element) in squad_ids, "own": r.own,
+             "net_transfers": int(r.net), "ownership_change_pct": round(-float(r.fall) * 100, 1),
+             "xp_6gw": round(r.xp_total, 1)}
+            for r in hit.sort_values("fall", ascending=False).itertuples()]
 
 
 def _best(plans):
@@ -207,6 +243,8 @@ def main(save=False, made=()):
                  "xi_top10k_own": {names[e]: round(own10k.get(e, 0.0), 3) for e in p["weeks"][0]["xi"]} if own10k else None}
                 for p in ps]
 
+    shadow_info = (shadow.log_for_brief(proj, boot, fixtures, nxt) if save
+                   else {"status": "not run (needs --save)"})
     owned = set(info.set_index("element").loc[list(squad), "name"])
     cap_table = w[w["element"].isin(squad)].sort_values(f"gw{nxt}", ascending=False).head(5)
     out = {
@@ -242,8 +280,10 @@ def main(save=False, made=()):
                    "own10k": round(own10k.get(int(w.loc[(w["name"] == f["name"]) & (w["team"] == f["team"]), "element"].iloc[0]), 0.0), 3)
                    if own10k and len(w[(w["name"] == f["name"]) & (w["team"] == f["team"])]) else None}
                   for f in edges(w, cur, nxt)],
-        "model_note": "xP calibrated with ownership; backtest: rank corr ~0.50 (1 GW), ~0.56 (6 GW); "
-                      "low-owned top picks delivered ~89-92% of raw projection (see backtest/REPORT.md).",
+        "flow_alarms": flow_alarms(boot, w, set(squad)),
+        "shadow": shadow_info,
+        "model_note": "xP calibrated on stats only (no ownership); backtest: rank corr ~0.50 (1 GW), ~0.56 (6 GW) "
+                      "(backtest/REPORT.md). Research lab and shadow model: research/REPORT.md.",
     }
     (ROOT / "brief_data.json").write_text(json.dumps(out, indent=1, default=str))
     if save:

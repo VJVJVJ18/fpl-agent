@@ -60,18 +60,77 @@ def fake_api(entry_name="Ekipa Nervno", fail=()):
     return get
 
 
+ODDS_HEADER = "Div,Date,Time,HomeTeam,AwayTeam,B365H,B365D,B365A,AvgH,AvgD,AvgA"
+
+
+def fake_odds(home_price="2.10"):
+    upcoming = "\n".join([ODDS_HEADER, f"E0,05/12/2026,15:00,Arsenal,Chelsea,{home_price},3.4,3.6,2.05,3.4,3.7",
+                          "SP1,05/12/2026,20:00,Betis,Sevilla,2.2,3.3,3.4,2.2,3.3,3.4"])
+    season = "\n".join([ODDS_HEADER + ",FTHG,FTAG", "E0,22/08/2026,12:30,Arsenal,Coventry,1.3,5.5,9.0,1.3,5.4,9.5,2,0"])
+
+    def fetch(url, tries=3):
+        return upcoming if url == collect.ODDS_UPCOMING else season
+    return fetch
+
+
 class Collector(unittest.TestCase):
-    def run_collector(self, **kw):
-        tmp = tempfile.mkdtemp()
+    def run_collector(self, out=None, odds=None, **kw):
+        tmp = out or tempfile.mkdtemp()
         cwd = os.getcwd()
         os.chdir(Path(__file__).resolve().parents[1])  # config.json lives at the repo root
         try:
             with mock.patch.object(collect, "get", fake_api(**kw)), \
-                 mock.patch.object(sys, "argv", ["collect.py", tmp]):
+                 mock.patch.object(collect, "fetch_text", odds or fake_odds()), \
+                 mock.patch.object(sys, "argv", ["collect.py", str(tmp)]):
                 code = collect.main()
         finally:
             os.chdir(cwd)
         return code, Path(tmp)
+
+    def test_history_and_odds_are_kept(self):
+        code, out = self.run_collector()
+        self.assertEqual(code, 0)
+        days = list((out / "history" / "2026-27" / "players").glob("*.csv.gz"))
+        self.assertEqual(len(days), 1)
+        rows = collect._read_csv_gz(days[0])
+        self.assertEqual(len(rows), len(DATA["bootstrap"]["elements"]))
+        self.assertIn("transfers_out_event", rows[0])
+        news = collect._read_csv_gz(out / "history" / "2026-27" / "news.csv.gz")
+        self.assertEqual(len(news), len(DATA["bootstrap"]["elements"]))   # first run logs everyone
+        odds = collect._read_csv_gz(out / "history" / "2026-27" / "odds_upcoming.csv.gz")
+        self.assertEqual([(r["HomeTeam"], r["B365H"]) for r in odds], [("Arsenal", "2.10")])  # E0 only
+        self.assertTrue((out / "odds" / "E0_2627.csv").exists())
+        self.assertTrue((out / "odds" / "E0_2223.csv").exists())
+
+    def test_second_run_logs_only_changes(self):
+        code, out = self.run_collector()
+        code, out = self.run_collector(out=out, odds=fake_odds(home_price="2.25"))
+        news = collect._read_csv_gz(out / "history" / "2026-27" / "news.csv.gz")
+        self.assertEqual(len(news), len(DATA["bootstrap"]["elements"]))   # nothing changed: no new rows
+        odds = collect._read_csv_gz(out / "history" / "2026-27" / "odds_upcoming.csv.gz")
+        self.assertEqual([r["B365H"] for r in odds], ["2.10", "2.25"])    # price moved: one new row
+        code, out = self.run_collector(out=out, odds=fake_odds(home_price="2.25"))
+        odds = collect._read_csv_gz(out / "history" / "2026-27" / "odds_upcoming.csv.gz")
+        self.assertEqual(len(odds), 2)                                    # unchanged: nothing added
+
+    def test_odds_failure_is_a_warning(self):
+        def down(url, tries=3):
+            raise RuntimeError(f"{url} -> HTTP 403")
+        code, out = self.run_collector(odds=down)
+        self.assertEqual(code, 0)
+        meta = json.loads((out / "meta.json").read_text())
+        self.assertTrue(any("odds" in w for w in meta["warnings"]))
+
+    def test_snapshot_timing(self):
+        from datetime import datetime, timezone
+        tmp = Path(tempfile.mkdtemp())
+        now = datetime(2026, 11, 30, 9, 0, tzinfo=timezone.utc)
+        self.assertTrue(collect.snapshot_due(tmp, now, "2026-12-01T18:30:00Z", "2026-27"))   # 33h out: dense
+        (tmp / "history" / "2026-27" / "players").mkdir(parents=True)
+        (tmp / "history" / "2026-27" / "players" / "2026-11-30.csv.gz").write_bytes(b"")
+        self.assertTrue(collect.snapshot_due(tmp, now, "2026-12-01T18:30:00Z", "2026-27"))
+        self.assertFalse(collect.snapshot_due(tmp, now, "2026-12-05T11:00:00Z", "2026-27"))  # far: daily only
+        self.assertEqual(collect.season_code("2026-27"), "2627")
 
     def test_output_feeds_squad_rebuild(self):
         code, out = self.run_collector()

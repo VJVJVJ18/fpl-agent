@@ -35,7 +35,9 @@ def projections(horizon=HORIZON):
     fx = fixtures[["id", "event", "team_h", "team_a"]].dropna(subset=["event"]).astype({"event": int})
     proj = model.project(cur, prev, fx, gws, universe, model.load_params(), sc)
     own = els.set_index("id")["selected_by_percent"].astype(float)
-    proj = model.calibrate(proj, own=own)
+    # No ownership in xP: the research lab found no out-of-sample gain from it (research/REPORT.md),
+    # and Vuk's rule is that what other managers own is never evidence of points.
+    proj = model.calibrate(proj)
 
     # Availability for the next gameweek only.
     chance = els.set_index("id")["chance_of_playing_next_round"]

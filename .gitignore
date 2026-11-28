@@ -2,3 +2,4 @@ data/
 __pycache__/
 *.pyc
 brief_data.json
+research/out/

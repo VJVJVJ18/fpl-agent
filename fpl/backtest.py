@@ -138,9 +138,10 @@ def fit_calibration(res, per_pct):
 
 
 def _calibrated(res, per_pct, cal):
+    """Pool rows with the live calibration (stats only, no ownership) in column xpc."""
     one = _pool_rows(res, per_pct)
-    a, b, c = cal["with_own"]
-    one["xpc"] = (a * one["p_play"] + b * one["xp"] + c * np.log1p(one["own"]) * one["p_play"]).clip(lower=0)
+    a, b = cal["xp_only"]
+    one["xpc"] = (a * one["p_play"] + b * one["xp"]).clip(lower=0)
     return one
 
 
@@ -280,16 +281,17 @@ def main(tune_flag=False):
     lines += [f"## Calibration fitted on train, checked on valid", "",
               f"Fitted coefficients: {json.dumps(cal)}.", "",
               "| Version (valid period) | MAE 1 GW | Rank corr. 1 GW |", "| --- | --- | --- |"]
-    for label, r in [("Raw", valid), ("Calibrated", calibrated), ("Calibrated + ownership", with_own)]:
+    for label, r in [("Raw", valid), ("Calibrated (live)", calibrated),
+                     ("Calibrated + ownership (research only, not used live)", with_own)]:
         m = metrics(r)
         lines.append(f"| {label} | {m['mae_1gw']:.3f} | {m['rho_1gw']:.3f} |")
-    lines += ["", "Calibration by projected points, valid period, calibrated + ownership:", "",
-              calibration(with_own).round(2).to_markdown(), ""]
+    lines += ["", "Calibration by projected points, valid period, calibrated (live):", "",
+              calibration(calibrated).round(2).to_markdown(), ""]
     lines += ["## Do low-owned picks deliver? (model's top 40 each gameweek, valid period)", "",
               f"Ownership from FPL's counts ({per_pct * 100 / 1e6:.1f} million managers). If low-owned picks score "
               "close to their projection, the model's differentials can be trusted.", "",
               "Raw model:", "", differentials(valid, per_pct).round(2).to_markdown(), "",
-              "Calibrated + ownership:", "", differentials(with_own, per_pct).round(2).to_markdown(), ""]
+              "Calibrated (live):", "", differentials(calibrated.assign(selected=valid["selected"]), per_pct).round(2).to_markdown(), ""]
     cap = captain_check(s26, params)
     if len(cap):
         lines += ["## Captaincy on Vuk's own XI (2026/27)", "",

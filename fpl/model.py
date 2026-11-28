@@ -69,10 +69,11 @@ def calibrate(proj, own=None, cal=None):
 
     calibrated = a x P(play) + b x raw xP [+ c x ln(1 + ownership %) x P(play)]
 
-    The backtest found the raw model slightly overconfident at the top end, and
-    that ownership carries information the stats miss (mostly minutes and news),
-    so it is used as a small adjustment when available. Rankings barely change;
-    levels become trustworthy for hit and chip decisions.
+    The backtest found the raw model slightly overconfident at the top end, so the
+    calibration fixes levels for hit and chip decisions. The ownership term is kept
+    only for research comparisons: live projections call this without `own`, because
+    the research lab (research/REPORT.md) found it adds nothing out of sample (top-11
+    picks -0.05 pts, t -0.7) while tilting the top 40 toward template players.
     """
     cal = cal or load_calibration()
     out = proj.copy()
