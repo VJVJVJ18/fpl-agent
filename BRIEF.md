@@ -60,7 +60,7 @@ Everything FPL runs in Vuk's single Claude chat. One scheduled message arrives e
   - **Deviation candidates:** for each template starter, low-owned alternatives (under 30% top-10k, nailed) whose rank-adjusted 6-GW value beats his, with the xP cost.
   - **Flow alarms:** players the model rates as nailed, with no FPL flag, whom managers are selling hardest this week (see section 4).
   - **Shadow:** whether the shadow model's projections were logged for the review (`predictions/<season>/gw<n>_shadow.csv`). Never used for decisions.
-- **Commit** `predictions/` and push. Brief runs may commit data files (`predictions/`, `reviews/`, `params.json`, `backtest/REPORT.md`, `research/REPORT.md`), never code. Code changes only when Vuk asks.
+- **Commit** `predictions/` and push. Brief runs may commit data files (`predictions/`, `reviews/`, `params.json`, `backtest/REPORT.md`, `research/REPORT.md`). Code changes only in an improvement sprint, within the limits in section 7, or when Vuk asks.
 - **Web sources (Claude):**
   - Press conferences and team news: premierleague.com, club sites, BBC, Sky, The Athletic.
   - Betting odds: match odds, goal totals, anytime scorer, named and dated.
@@ -160,9 +160,18 @@ Rules:
   - Scores that gameweek's logged projections against actual points: rank correlation, error, bias, the model's top 20, and Vuk's XI and captain.
   - Appends the result to `reviews/2026-27.csv`, the season-long track record.
   - Every 3rd review, re-tunes the model (`python -m fpl.backtest --tune`), which also refits the spread of points around the projection used by the rank objective. Tuning uses last season plus this season up to 4 gameweeks ago. New settings are kept only if they do at least as well on the 4 most recent gameweeks and on last season's held-out period.
-- **Shadow model:** the review also scores the shadow model (`fpl/shadow.py`) against the live one and appends to `reviews/2026-27_shadow.csv`. If it prints that the shadow passes the live gate (6+ gameweeks, ahead in 5 of 6, rank correlation +0.02 or more, top-20 not lower), propose promotion to Vuk with the numbers. Never promote it without his agreement.
+- **Shadow book:** the review also scores every active shadow version (`fpl/shadow.py`) against the live model and appends to `reviews/2026-27_shadow.csv`. The live gate per version: 6+ gameweeks, ahead in 5 of every 6, rank correlation +0.02 or more on average, top-20 not lower. Never promote a version without Vuk's agreement.
+- **Promotion decision (agreed with Vuk, 28 Nov 2026):** the shadow book runs until GW19. At the GW18 review, compare every version's live record with the gate. In the GW19 brief, lead with the result: propose the best version that passes, with its numbers, for use from GW19; if none passes, say so and keep the live model.
+- **Improvement sprint (after every REVIEW, once that day's brief is delivered, never before it):** Vuk wants the shadow model improved every gameweek, looking for alpha over the live model.
+  1. Read `research/LOG.md` and `research/BACKLOG.md`. Take the highest backlog item whose data is ready. If `research/out/panel.parquet` is missing or more than 3 days old, run `python3 -m research.panel` first (about 1 minute).
+  2. Build it in `research/` (a new script in `research/sprints/`, new panel columns; never change an existing column).
+  3. Test it walk-forward against the live model and the best active shadow version. It passes only if, on both untouched periods, rank IC is higher with t >= 2.5 and top-20 points are not lower, and the same-state decision test is not below -0.25 points per GW.
+  4. If it passes, add it to `fpl/shadow.py` as a new frozen version (VERSIONS and ACTIVE, at most 3 active). Never edit an active version. If 3 are active, retire the one with the weakest live record.
+  5. Run `python3 -m unittest discover tests`. Only if everything passes: add the entry to `research/LOG.md`, update the backlog ranking, commit and push.
+  6. Put one line in the next brief: what was tested, the decisive number, and the verdict (ADDED, REJECTED or PARKED).
+  - **Limits:** a sprint may change code only in `research/`, `fpl/shadow.py` and `tests/`. The live model, optimiser, rank maths, brief pipeline and collector need Vuk's agreement. No ownership levels as inputs, ever. Stop after about 45 minutes and log the progress; the next review continues it.
 - **Research lab:** at the GW19 and GW30 reviews, also run `python3 -m research.run` (about 20 minutes). It rebuilds the evidence for every candidate signal and model and writes `research/REPORT.md` with a verdict (PROMOTE, SHADOW or REJECT) from the promotion gate. Report any change of verdict in the next brief.
-- **After it runs:** commit `reviews/`, `params.json`, `backtest/REPORT.md` and `research/REPORT.md`, push, and carry the one-line summary into the next brief.
+- **After it runs:** commit `reviews/`, `params.json`, `backtest/REPORT.md` and `research/REPORT.md`, push, and carry the one-line summaries (review, shadow book, sprint) into the next brief.
 - **Rule changes:** changes to the rules in this file, as opposed to the model's settings, are proposed to Vuk with the evidence and made only when he agrees.
 
 ## 8. Checks before sending

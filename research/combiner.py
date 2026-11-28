@@ -54,16 +54,25 @@ def prepare(P):
     return P
 
 
-def fit(train, variant):
-    m = lgb.LGBMRegressor(**PARAMS)
-    y = train["points"] - train["xp"] if variant in RESIDUAL else train["points"]
-    m.fit(train[FEATURES[variant]], y)
+def fit_spec(train, features, residual, params=None):
+    """Fit one model from an explicit spec (feature list, residual or not, LightGBM settings)."""
+    m = lgb.LGBMRegressor(**(params or PARAMS))
+    y = train["points"] - train["xp"] if residual else train["points"]
+    m.fit(train[features], y)
     return m
 
 
+def predict_spec(m, rows, features, residual):
+    out = m.predict(rows[features])
+    return out + rows["xp"].to_numpy() if residual else out
+
+
+def fit(train, variant):
+    return fit_spec(train, FEATURES[variant], variant in RESIDUAL)
+
+
 def predict(m, rows, variant):
-    out = m.predict(rows[FEATURES[variant]])
-    return out + rows["xp"].to_numpy() if variant in RESIDUAL else out
+    return predict_spec(m, rows, FEATURES[variant], variant in RESIDUAL)
 
 
 def walk_forward(P, test_seasons, variants, log=print):

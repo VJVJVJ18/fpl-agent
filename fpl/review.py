@@ -83,42 +83,46 @@ def review(gw):
     return row
 
 
-SHADOW_FIELDS = ["gw", "players", "rank_live", "rank_shadow", "rank_shadow_flagged",
-                 "top20_live", "top20_shadow", "top20_shadow_flagged"]
+SHADOW_FIELDS = ["gw", "version", "players", "rank_live", "rank_raw", "rank_flagged",
+                 "top20_live", "top20_raw", "top20_flagged"]
 GATE_MIN_GWS, GATE_WINS, GATE_MEAN = 6, 5, 0.02
 
 
-def shadow_gate(hist, col="rank_shadow_flagged"):
-    """Live gate for the shadow model (see fpl/shadow.py). Returns (passed, summary)."""
-    d = hist[col] - hist["rank_live"]
-    t20 = (hist[col.replace("rank", "top20")] - hist["top20_live"]).mean()
+def shadow_gate(hist):
+    """Live gate for one shadow version (see fpl/shadow.py). Returns (passed, summary)."""
+    d = hist["rank_flagged"] - hist["rank_live"]
+    t20 = (hist["top20_flagged"] - hist["top20_live"]).mean()
     wins, n = int((d > 0).sum()), len(d)
     passed = n >= GATE_MIN_GWS and wins >= GATE_WINS * n / GATE_MIN_GWS and d.mean() >= GATE_MEAN and t20 >= 0
     return passed, f"ahead in {wins} of {n} GWs, rank corr {d.mean():+.3f} on average, top-20 {t20:+.2f} pts"
 
 
 def review_shadow(gw, actual):
-    """Score the shadow model's logged projections for a gameweek against the live model's."""
+    """Score every shadow version logged for a gameweek against the live model."""
     path = ROOT / "predictions" / SEASON / f"gw{gw}_shadow.csv"
     if not path.exists():
         return None
     sh = pd.read_csv(path).join(actual, on="element").dropna(subset=["points"])
     pool = sh[sh["p_play"] >= 0.3]
-    row = {"gw": gw, "players": len(pool)}
-    for name, col in [("live", "xp_live"), ("shadow", "xp_shadow"), ("shadow_flagged", "xp_shadow_flagged")]:
-        row[f"rank_{name}"] = round(spearmanr(pool[col], pool["points"]).statistic, 3)
-        row[f"top20_{name}"] = round(pool.nlargest(20, col)["points"].mean(), 2)
+    versions = [c[3:] for c in sh.columns if c.startswith("xp_v") and not c.endswith("_flagged")]
+    rank = lambda col: round(spearmanr(pool[col], pool["points"]).statistic, 3)
+    top = lambda col: round(pool.nlargest(20, col)["points"].mean(), 2)
+    rows = [{"gw": gw, "version": v, "players": len(pool), "rank_live": rank("xp_live"),
+             "rank_raw": rank(f"xp_{v}"), "rank_flagged": rank(f"xp_{v}_flagged"),
+             "top20_live": top("xp_live"), "top20_raw": top(f"xp_{v}"), "top20_flagged": top(f"xp_{v}_flagged")}
+            for v in versions]
     out = ROOT / "reviews" / f"{SEASON}_shadow.csv"
+    out.parent.mkdir(exist_ok=True)
     hist = pd.read_csv(out) if out.exists() else pd.DataFrame(columns=SHADOW_FIELDS)
-    hist = pd.concat([hist[hist["gw"] != gw], pd.DataFrame([row])], ignore_index=True).sort_values("gw")
+    hist = hist[hist["gw"] != gw]
+    hist = pd.concat([hist, pd.DataFrame(rows)], ignore_index=True).sort_values(["version", "gw"])
     hist[SHADOW_FIELDS].to_csv(out, index=False)
-    passed, summary = shadow_gate(hist)
-    line = (f"Shadow model GW{gw}: rank corr {row['rank_shadow_flagged']} vs live {row['rank_live']}; "
-            f"season so far {summary}.")
-    if passed:
-        line += " It passes the live gate: propose promotion to Vuk with these numbers (BRIEF.md section 7)."
-    return line
-
-
-if __name__ == "__main__":
-    review(int(sys.argv[1]))
+    lines = []
+    for r in rows:
+        passed, summary = shadow_gate(hist[hist["version"] == r["version"]])
+        line = (f"Shadow {r['version']} GW{gw}: rank corr {r['rank_flagged']} vs live {r['rank_live']}; "
+                f"season so far {summary}.")
+        if passed:
+            line += " Passes the live gate: propose promotion to Vuk with these numbers (BRIEF.md section 7)."
+        lines.append(line)
+    return " ".join(lines)

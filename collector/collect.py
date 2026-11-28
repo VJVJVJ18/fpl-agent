@@ -141,7 +141,8 @@ def field_sample(gw, fetch, seed=None):
 # each deadline. These files are the only record, so they are never deleted.
 HISTORY_FIELDS = ["id", "status", "chance_of_playing_next_round", "chance_of_playing_this_round",
                   "now_cost", "selected_by_percent", "transfers_in_event", "transfers_out_event",
-                  "ep_next", "form", "news_added"]
+                  "ep_next", "form", "news_added", "penalties_order",
+                  "corners_and_indirect_freekicks_order", "direct_freekicks_order"]
 DENSE_WINDOW_H = 48   # every run in the 48 hours before a deadline; otherwise one snapshot a day
 
 # Bookmaker prices (football-data.co.uk, free CSVs): the market's view of every match.

@@ -1,16 +1,21 @@
-"""Shadow model: the research lab's best candidate, run live at every brief and scored at
-every review, but never used for decisions until it passes the live gate and Vuk agrees.
+"""Shadow book: candidate models run live at every brief and scored at every review, but never
+used for decisions until one passes the live gate and Vuk agrees.
 
-Candidate (research/REPORT.md, 28 Nov 2026): the "overlay", a LightGBM model that learns the
-current model's errors from player stats and transfer flow (no ownership levels). Walk-forward it
-lifted rank IC by +0.02 to +0.05 in every period (t 3.9 to 6.8), but in same-state decision
-tests the gain was +0.20 points per GW with a 90% interval of -0.79 to +1.19: not proven.
+Each version is frozen: its feature list and LightGBM settings are written out in VERSIONS, so
+later research changes cannot alter a version that is already building a live record. New
+versions are added by the improvement loop (BRIEF.md section 7) only after they pass the
+research gate; at most MAX_ACTIVE run at once.
 
-Live gate (checked by fpl/review.py): over at least 6 reviewed gameweeks, the shadow beats the
-live model's rank correlation in at least 5, by +0.02 or more on average, without a lower
-top-20 average. Then the review proposes promotion to Vuk with the numbers.
+v1 (28 Nov 2026, live from GW13): the research "overlay", a LightGBM model that learns the
+current model's errors from player stats and transfer flow (no ownership levels). Walk-forward
+it lifted rank IC by +0.02 to +0.05 in every period (t 3.9 to 6.8); in same-state decision tests
+the gain was +0.20 points per GW with a 90% interval of -0.77 to +1.15: not proven.
 
-  python -m fpl.shadow     # train and log shadow projections for the next gameweek
+Live gate (fpl/review.py), per version: at least 6 reviewed gameweeks, ahead of the live model's
+rank correlation in at least 5 of every 6, by +0.02 or more on average, with a top-20 average no
+lower. Decision point agreed with Vuk: the GW18 review, before the GW19 deadline.
+
+  python -m fpl.shadow     # train every active version and log the next gameweek
 """
 import json
 import time
@@ -25,7 +30,23 @@ from . import data
 ROOT = Path(__file__).resolve().parent.parent
 CACHE = data.CACHE / "shadow_panel.parquet"
 MAX_AGE_H = 72
-CANDIDATE = "overlay"
+MAX_ACTIVE = 3
+V1_FEATURES = [
+    "xp", "x_app", "x_goals", "x_assists", "x_cs", "x_gc", "x_saves", "x_dc", "x_bonus", "x_cards",
+    "cs_prob", "att_factor", "n_fix", "home", "h", "p_play", "p60", "e_min", "xg90", "xa90", "dc_hit",
+    "bonus90", "pos_code", "defcon_era", "form", "min1", "min3", "min6", "start6", "full6", "xgi_pg3",
+    "xgi_pg6", "xgi_pg_season", "thr_pg6", "crea_pg6", "infl_pg6", "ict_pg6", "bps_pg6", "bps_pg_season",
+    "bonus_pg6", "pts4", "pts_pg_season", "dc_pg6", "rec_pg6", "saves_pg6", "fin_over", "ga_minus_xgi_pg6",
+    "team_xgf6", "team_xga6", "xgi_p90_6", "value", "own_mom", "tb_share", "tin_rank", "tout_rank"]
+V1_PARAMS = {"objective": "regression", "learning_rate": 0.03, "num_leaves": 15, "min_data_in_leaf": 400,
+             "feature_fraction": 0.7, "bagging_fraction": 0.8, "bagging_freq": 1, "lambda_l2": 10.0,
+             "n_estimators": 500, "verbose": -1, "seed": 7}
+VERSIONS = {
+    "v1": {"added": "2026-11-28", "first_gw": 13, "residual": True, "features": V1_FEATURES,
+           "params": V1_PARAMS, "desc": "overlay: stats + transfer flow, learns the live model's errors"},
+}
+ACTIVE = ["v1"]
+assert len(ACTIVE) <= MAX_ACTIVE
 RAW_MAP = {"goals_scored": "goals", "expected_goals": "xg", "expected_assists": "xa",
            "expected_goal_involvements": "xgi", "expected_goals_conceded": "xgc", "clean_sheets": "cs",
            "goals_conceded": "gc", "defensive_contribution": "dc", "total_points": "points",
@@ -118,17 +139,21 @@ def live_features(proj, raw, teams, team_of, origin):
 
 
 def run(proj, boot, fixtures, nxt, availability, log=print):
-    """Train the candidate on all finished data, score the live rows, log the next gameweek."""
+    """Train every active version on all finished data, score the live rows, log the next GW."""
     from research import combiner
     P = training_panel(log)
-    model = combiner.fit(P, CANDIDATE)
     raw, teams, team_of = collector_raw(boot, fixtures)
     rows = live_features(proj, raw, teams, team_of, signal_origin(boot))
-    rows["xp_shadow"] = combiner.predict(model, rows, CANDIDATE)
     nx = rows[rows["gw"] == nxt].groupby("element", as_index=False).agg(
-        xp_live=("xp_live", "sum"), xp_shadow=("xp_shadow", "sum"), p_play=("p_play", "first"))
+        xp_live=("xp_live", "sum"), p_play=("p_play", "first"))
     nx["availability"] = nx["element"].map(availability).fillna(1.0)
-    nx["xp_shadow_flagged"] = nx["xp_shadow"] * nx["availability"]
+    for v in ACTIVE:
+        spec = VERSIONS[v]
+        model = combiner.fit_spec(P, spec["features"], spec["residual"], spec["params"])
+        rows[f"xp_{v}"] = combiner.predict_spec(model, rows, spec["features"], spec["residual"])
+        per = rows[rows["gw"] == nxt].groupby("element")[f"xp_{v}"].sum()
+        nx[f"xp_{v}"] = nx["element"].map(per)
+        nx[f"xp_{v}_flagged"] = nx[f"xp_{v}"] * nx["availability"]
     nx.insert(1, "gw", nxt)
     nx["made_at"] = datetime.now(timezone.utc).isoformat(timespec="minutes")
     nx["trained_rows"] = len(P)
@@ -151,7 +176,7 @@ def log_for_brief(proj, boot, fixtures, nxt, log=print):
         availability = chance.where(chance.notna(), np.where(status.isin({"i", "s", "u", "n"}), 0.0, 1.0)).to_dict()
         p = proj.assign(xp_live=proj["xp"])
         path, nx = run(p, boot, fixtures, nxt, availability, log)
-        return {"status": "logged", "file": str(path.relative_to(ROOT)), "players": len(nx)}
+        return {"status": "logged", "file": str(path.relative_to(ROOT)), "players": len(nx), "versions": ACTIVE}
     except Exception as err:  # noqa: BLE001
         return {"status": f"failed: {type(err).__name__}: {err}"}
 

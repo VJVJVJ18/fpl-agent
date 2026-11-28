@@ -14,8 +14,8 @@ Data and model for the "Ekipa Nervno" FPL analyst. Advice only: nothing here log
 | `fpl/brief_data.py` | Each brief | Runs all of the above and writes `brief_data.json` |
 | `fpl/gate.py` | Every morning | SKIP, REVIEW or BRIEF (deadline within 36 hours) |
 | `fpl/review.py`, `fpl/backtest.py` | After each gameweek | Scores the projections, keeps the track record, re-tunes the model when it helps out of sample |
-| `fpl/shadow.py` | Each brief | The research lab's best candidate model, logged next to the live one and scored at each review; never used for decisions until it passes the live gate |
-| `research/` | GW19 and GW30 reviews | Research lab: point-in-time panel, signal scan, walk-forward models, decision tests with the real optimiser, promotion gate (`research/REPORT.md`) |
+| `fpl/shadow.py` | Each brief | Shadow book: up to 3 frozen candidate models, logged next to the live one and scored at each review; never used for decisions until one passes the live gate and Vuk agrees (decision at the GW18 review) |
+| `research/` | After every review | Research lab and weekly improvement sprints: point-in-time panel, signal scan, walk-forward models, decision tests with the real optimiser, promotion gate. Backlog in `research/BACKLOG.md`, results in `research/LOG.md` |
 | `BRIEF.md` | Vuk's Claude chat | The rulebook every brief follows |
 
 The `data` branch is replaced on each run, so the repo stays small, but its files carry over from run to run. It holds only public data: FPL's own data, plus bookmaker odds from football-data.co.uk. Plans and recommendations are never stored here.
